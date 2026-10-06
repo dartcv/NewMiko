@@ -1,0 +1,55 @@
+name: Spam Guard
+
+on:
+  issues:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+  schedule:
+    # 定时兜底清扫（GitHub 计划任务可能延迟数分钟，属正常）
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      sweep:
+        description: "扫描现有 open issues"
+        type: boolean
+        default: true
+      dry_run:
+        description: "dry-run：只记录不执行"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  # 同一 issue 的重复运行串行化，不阻塞其它 issue
+  group: spam-guard-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Run spam guard
+        # v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          # 可选仓库变量（未配置时使用脚本内置默认值）
+          SPAM_GUARD_DRY_RUN: ${{ vars.SPAM_GUARD_DRY_RUN }}
+          SPAM_LOGIN_PATTERNS: ${{ vars.SPAM_LOGIN_PATTERNS }}
+          SPAM_KEYWORDS: ${{ vars.SPAM_KEYWORDS }}
+          SPAM_NEW_ACCOUNT_HOURS: ${{ vars.SPAM_NEW_ACCOUNT_HOURS }}
+          SPAM_BURST_WINDOW_MINUTES: ${{ vars.SPAM_BURST_WINDOW_MINUTES }}
+          SPAM_BURST_THRESHOLD: ${{ vars.SPAM_BURST_THRESHOLD }}
+          SPAM_AUTO_BLOCK: ${{ vars.SPAM_AUTO_BLOCK }}
+          # 可选：带 user scope 的 PAT，用于自动拉黑（不配置则跳过）
+          SPAM_BLOCK_PAT: ${{ secrets.SPAM_BLOCK_PAT }}
+        with:
+          script: |
+            const run = require('./.github/scripts/spam-guard.js');
+            await run({ github, context, core });
